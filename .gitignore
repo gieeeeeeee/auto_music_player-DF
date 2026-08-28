@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+data/
+*.db
+settings.json
+.venv/
+venv/
+gui-redesign/runtime-*.json
+gui-redesign/validation-report.json
+gui-redesign/.preflight/

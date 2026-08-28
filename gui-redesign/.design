@@ -1,0 +1,213 @@
+{
+  "data": [
+    {
+      "id": "page-upload",
+      "title": "上传识别",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1724860800000,
+      "canvasData": {
+        "x": 0,
+        "y": 0,
+        "group": 0,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-ab51008c",
+          "measuredAt": 1787926926442
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/upload.html",
+        "interactions": [
+          {
+            "domId": "nav-upload",
+            "target": "pages/upload.html",
+            "targetPageId": "page-upload",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-library",
+            "target": "pages/library.html",
+            "targetPageId": "page-library",
+            "hideEdge": false
+          },
+          {
+            "domId": "nav-player",
+            "target": "pages/player.html",
+            "targetPageId": "page-player",
+            "hideEdge": false
+          },
+          {
+            "domId": "nav-settings",
+            "target": "pages/settings.html",
+            "targetPageId": "page-settings",
+            "hideEdge": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-library",
+      "title": "乐谱库",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1724860800000,
+      "canvasData": {
+        "x": 480,
+        "y": 0,
+        "group": 0,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-fea94508",
+          "measuredAt": 1787926926442
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/library.html",
+        "interactions": [
+          {
+            "domId": "nav-upload",
+            "target": "pages/upload.html",
+            "targetPageId": "page-upload",
+            "hideEdge": false
+          },
+          {
+            "domId": "nav-library",
+            "target": "pages/library.html",
+            "targetPageId": "page-library",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-player",
+            "target": "pages/player.html",
+            "targetPageId": "page-player",
+            "hideEdge": false
+          },
+          {
+            "domId": "nav-settings",
+            "target": "pages/settings.html",
+            "targetPageId": "page-settings",
+            "hideEdge": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-player",
+      "title": "演奏控制",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1724860800000,
+      "canvasData": {
+        "x": 960,
+        "y": 0,
+        "group": 0,
+        "layoutSnapshot": {
+          "version": 1,
+          "contentHeight": 900,
+          "viewportWidth": 1440,
+          "sourceHash": "fnv1a-2736a922",
+          "measuredAt": 1787926926442
+        }
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/player.html",
+        "interactions": [
+          {
+            "domId": "nav-upload",
+            "target": "pages/upload.html",
+            "targetPageId": "page-upload",
+            "hideEdge": false
+          },
+          {
+            "domId": "nav-library",
+            "target": "pages/library.html",
+            "targetPageId": "page-library",
+            "hideEdge": false
+          },
+          {
+            "domId": "nav-player",
+            "target": "pages/player.html",
+            "targetPageId": "page-player",
+            "hideEdge": true
+          },
+          {
+            "domId": "nav-settings",
+            "target": "pages/settings.html",
+            "targetPageId": "page-settings",
+            "hideEdge": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "page-settings",
+      "title": "模型设置",
+      "type": "page",
+      "version": 1,
+      "createdAt": 1724860800000,
+      "canvasData": {
+        "x": 1440,
+        "y": 0,
+        "group": 0
+      },
+      "devMetadata": {
+        "htmlSrc": "pages/settings.html",
+        "interactions": [
+          {
+            "domId": "nav-upload",
+            "target": "pages/upload.html",
+            "targetPageId": "page-upload",
+            "hideEdge": false
+          },
+          {
+            "domId": "nav-library",
+            "target": "pages/library.html",
+            "targetPageId": "page-library",
+            "hideEdge": false
+          },
+          {
+            "domId": "nav-player",
+            "target": "pages/player.html",
+            "targetPageId": "page-player",
+            "hideEdge": false
+          },
+          {
+            "domId": "nav-settings",
+            "target": "pages/settings.html",
+            "targetPageId": "page-settings",
+            "hideEdge": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "image-002",
+      "title": "image",
+      "type": "image",
+      "version": 1,
+      "createdAt": 1787926262121,
+      "canvasData": {
+        "x": 1752,
+        "y": 1140,
+        "naturalSize": {
+          "width": 1789,
+          "height": 1071
+        }
+      },
+      "devMetadata": {
+        "imageSrc": "assets/image.png"
+      }
+    }
+  ],
+  "config": {
+    "autoLayout": false,
+    "deviceType": "desktop",
+    "projectName": "游戏自动演奏器 GUI",
+    "visualEditorEnabled": false
+  }
+}

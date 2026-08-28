@@ -1,0 +1,32 @@
+app:
+  data_dir: data
+  db_file: scores.db
+
+recognizer:
+  # provider: stub | openai_compatible
+  # stub  = 内置样例,用于跑通流程,不调用真实 API
+  # openai_compatible = 兼容 OpenAI 协议的多模态接口(通义/GLM/Kimi/OpenAI 均可用)
+  provider: stub
+  api_base: ""
+  api_key: ""
+  model: ""
+  # 识别超时(秒)
+  timeout: 120
+
+keymap:
+  # 高音 1-7
+  high: [Q, W, E, R, T, Y, U]
+  # 中音 1-7
+  mid: [A, S, D, F, G, H, J]
+  # 低音 1-7
+  low: [Z, X, C, V, B, N, M]
+
+player:
+  # 默认演奏速度(拍/分钟,四分音符为一拍)
+  default_bpm: 100
+  # 按键按住时间占音符时值的比例(0-1),其余为松开间隙,防止音符粘连
+  hold_ratio: 0.75
+  # 相邻音符之间的额外间隔(毫秒)
+  gap_ms: 20
+  # 全局紧急停止热键
+  stop_hotkey: F8

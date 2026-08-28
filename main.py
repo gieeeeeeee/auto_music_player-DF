@@ -2,6 +2,7 @@
 
 import ctypes
 import os
+import shutil
 import sys
 
 import yaml
@@ -28,9 +29,26 @@ def is_admin() -> bool:
         return False
 
 
-def main():
+def ensure_config() -> str:
+    """切到数据目录并保证 config.yaml 可用。
+
+    exe 运行:数据落在 exe 旁边;exe 旁没有 config.yaml 时,
+    自动释放打包时内嵌的默认配置,保证单文件可运行。
+    """
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(sys.executable)
+        target = os.path.join(exe_dir, "config.yaml")
+        if not os.path.exists(target):
+            bundled = os.path.join(getattr(sys, "_MEIPASS", exe_dir), "config.yaml")
+            shutil.copyfile(bundled, target)
+        os.chdir(exe_dir)
+        return target
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    cfg = load_config()
+    return "config.yaml"
+
+
+def main():
+    cfg = load_config(ensure_config())
     app_cfg = cfg.get("app", {})
     data_dir = app_cfg.get("data_dir", "data")
     db = ScoreDB(os.path.join(data_dir, app_cfg.get("db_file", "scores.db")))

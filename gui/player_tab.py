@@ -1,4 +1,7 @@
-"""演奏控制页(对齐 Web 设计稿):选谱 -> BPM -> 播放/停止 -> 进度。"""
+"""演奏控制页(对齐 Web 设计稿):选谱 -> BPM -> 开始/停止/重置 -> 进度。
+
+三态控制:开始(或暂停后"继续演奏") / 停止(= 暂停,进度保留) / 重置(仅停止后可用,进度归零)。
+"""
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
@@ -27,9 +30,12 @@ class PlayerTab(QWidget):
         self._gap_ms = float(player_cfg.get("gap_ms", 20))
         self._score_id = None
         self._had_error = False
+        self._paused_done = 0
+        self._paused_total = 0
         self._build_ui()
         self._player.progress.connect(self._on_progress)
         self._player.finished.connect(self._on_finished)
+        self._player.paused.connect(self._on_paused)
         self._player.error_occurred.connect(self._on_error)
 
     def _card(self, title):
@@ -115,8 +121,15 @@ class PlayerTab(QWidget):
         self.stop_btn.setMinimumWidth(80)
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self._stop)
+        self.reset_btn = QPushButton("重置")
+        self.reset_btn.setObjectName("BtnSecondary")
+        self.reset_btn.setMinimumWidth(80)
+        self.reset_btn.setEnabled(False)
+        self.reset_btn.setToolTip("仅在停止(暂停)后可用:清空演奏进度,下次从头开始")
+        self.reset_btn.clicked.connect(self._reset)
         ctrl_row.addWidget(self.play_btn)
         ctrl_row.addWidget(self.stop_btn)
+        ctrl_row.addWidget(self.reset_btn)
         ctrl_row.addStretch(1)
         lay.addLayout(ctrl_row)
 
@@ -133,7 +146,7 @@ class PlayerTab(QWidget):
         pos_row.addWidget(self.progress_state)
         lay.addLayout(pos_row)
 
-        hint = QLabel("演奏时请将焦点切到游戏窗口 · 按 F8 可随时停止演奏")
+        hint = QLabel("演奏时请将焦点切到游戏窗口 · 按 F8 可随时暂停演奏")
         hint.setFixedHeight(40)
         hint.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         hint.setStyleSheet(
@@ -157,6 +170,7 @@ class PlayerTab(QWidget):
         return value
 
     def refresh(self):
+        self._clear_pause()
         self.combo.blockSignals(True)
         self.combo.clear()
         for s in self._db.list_scores():
@@ -180,6 +194,7 @@ class PlayerTab(QWidget):
 
     def _on_select(self):
         self._score_id = self.combo.currentData()
+        self._clear_pause()
         if self._score_id is None:
             self.play_btn.setEnabled(False)
             return
@@ -191,6 +206,13 @@ class PlayerTab(QWidget):
         self.info_count.setText(str(len(score["notes"])))
         self.info_duration.setText(f"{self._estimate_seconds(score['notes'], self.bpm_spin.value())} 秒")
         self.play_btn.setEnabled(not self._player.is_playing)
+
+    def _clear_pause(self):
+        """回到未开始态:清空暂停进度与按钮状态。"""
+        self._paused_done = 0
+        self._paused_total = 0
+        self.play_btn.setText("开始演奏")
+        self.reset_btn.setEnabled(False)
 
     def _estimate_seconds(self, notes, bpm):
         beat_ms = 60000.0 / max(1, bpm)
@@ -205,12 +227,15 @@ class PlayerTab(QWidget):
         if not score or not score["notes"]:
             AppDialog.show_warning(self, "提示", "该乐谱没有音符数据")
             return
-        self._pending = (score["notes"], self.bpm_spin.value())
+        start_index = self._paused_done if self._paused_done > 0 else 0
+        self._pending = (score["notes"], self.bpm_spin.value(), start_index)
         self._had_error = False
         self._countdown_left = 3
         self.play_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
-        self.state_label.setText(f"3 秒后演奏: 《{score['name']}》")
+        self.reset_btn.setEnabled(False)
+        resume_hint = f"从第 {start_index} 音符继续" if start_index > 0 else ""
+        self.state_label.setText(f"3 秒后演奏: 《{score['name']}》 {resume_hint}".strip())
         self.progress_state.setText(f"{self._countdown_left} 秒后开始演奏,请切换到游戏窗口...")
         self._countdown_timer = QTimer(self)
         self._countdown_timer.timeout.connect(self._countdown_tick)
@@ -222,8 +247,8 @@ class PlayerTab(QWidget):
             self.progress_state.setText(f"{self._countdown_left} 秒后开始演奏,请切换到游戏窗口...")
             return
         self._countdown_timer.stop()
-        notes, bpm = self._pending
-        self._player.play(notes, bpm, self._hold_ratio, self._gap_ms)
+        notes, bpm, start_index = self._pending
+        self._player.play(notes, bpm, self._hold_ratio, self._gap_ms, start_index=start_index)
         self.state_label.setText(f"演奏中 BPM {bpm}")
         self.progress_state.setText("演奏中...")
 
@@ -236,12 +261,32 @@ class PlayerTab(QWidget):
             self.progress_state.setText("已取消")
             return
         self._player.stop()
-        self.progress_state.setText("正在停止...")
+        self.progress_state.setText("正在暂停...")
 
     def _on_progress(self, done, total):
         self.progress_bar.setRange(0, max(1, total))
         self.progress_bar.setValue(done)
         self.pos_label.setText(f"{done} / {total}")
+
+    def _on_paused(self, done, total):
+        """停止(暂停):进度保留,可继续或重置。"""
+        self._paused_done = done
+        self._paused_total = total
+        self.play_btn.setEnabled(True)
+        self.play_btn.setText("继续演奏" if done > 0 else "开始演奏")
+        self.stop_btn.setEnabled(False)
+        self.reset_btn.setEnabled(True)
+        self.state_label.setText("已暂停")
+        self.progress_state.setText(f"已暂停于 {done} / {total} · 「继续演奏」或「重置」")
+
+    def _reset(self):
+        """重置:清空暂停进度,回到未开始态(仅在暂停态可点击)。"""
+        self._clear_pause()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.pos_label.setText("0 / 0")
+        self.state_label.setText("就绪")
+        self.progress_state.setText("进度已重置")
 
     def _on_error(self, msg: str):
         self._had_error = True
@@ -249,6 +294,7 @@ class PlayerTab(QWidget):
         self.progress_state.setText(f"出错: {msg}")
 
     def _on_finished(self, normal):
+        self._clear_pause()
         self.play_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         if normal:

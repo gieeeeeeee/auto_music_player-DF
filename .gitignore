@@ -10,4 +10,3 @@ gui-redesign/validation-report.json
 gui-redesign/.preflight/
 build/
 dist/
-*.spec

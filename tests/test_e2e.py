@@ -123,6 +123,30 @@ class TestImageCompress(unittest.TestCase):
                 os.remove(path)
 
 
+class TestDocxExtract(unittest.TestCase):
+    def test_extract_docx(self):
+        import zipfile
+
+        from gui.upload_tab import _extract_text
+
+        doc_xml = (
+            '<?xml version="1.0"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            "<w:body>"
+            "<w:p><w:r><w:t>1 1 5 5</w:t></w:r></w:p>"
+            "<w:p><w:r><w:t>6 6 5-</w:t></w:r></w:p>"
+            "</w:body></w:document>"
+        )
+        path = "data/test_extract.docx"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("word/document.xml", doc_xml)
+        try:
+            self.assertEqual(_extract_text(path), "1 1 5 5\n6 6 5-")
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+
+
 class TestPlayer(unittest.TestCase):
     def test_play_full_sequence_with_chord_and_rest(self):
         km = KeyMap(MAPPING)

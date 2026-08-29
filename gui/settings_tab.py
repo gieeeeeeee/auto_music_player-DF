@@ -11,13 +11,13 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
 from gui.theme import BRAND, BRAND_SOFT, INK_2, STATE_ERROR, STATE_SUCCESS
+from gui.widgets import AppDialog
 
 
 class SettingsTab(QWidget):
@@ -232,7 +232,7 @@ class SettingsTab(QWidget):
 
     def _save(self):
         if not self._current_id:
-            QMessageBox.information(self, "提示", "请先添加并选择供应商")
+            AppDialog.show_info(self, "提示", "请先添加并选择供应商")
             return
         fields = {
             "name": self.name_edit.text().strip(),
@@ -241,16 +241,16 @@ class SettingsTab(QWidget):
             "model": self.model_edit.text().strip(),
         }
         if not fields["name"] or not fields["base_url"] or not fields["model"]:
-            QMessageBox.warning(self, "提示", "供应商名称、Base URL、模型名称不能为空")
+            AppDialog.show_warning(self, "提示", "供应商名称、Base URL、模型名称不能为空")
             return
         self._store.update_provider(self._current_id, fields)
         self.providers_saved.emit()
         self.refresh_provider_status()
-        QMessageBox.information(self, "成功", "配置已保存")
+        AppDialog.show_success(self, "成功", "配置已保存")
 
     def _activate(self):
         if not self._current_id:
-            QMessageBox.information(self, "提示", "请先添加并选择供应商")
+            AppDialog.show_info(self, "提示", "请先添加并选择供应商")
             return
         self._store.activate(self._current_id)
         self.providers_saved.emit()
@@ -266,15 +266,15 @@ class SettingsTab(QWidget):
 
     def _delete_provider(self):
         if not self._current_id:
-            QMessageBox.information(self, "提示", "请先添加并选择供应商")
+            AppDialog.show_info(self, "提示", "请先添加并选择供应商")
             return
         providers = self._store.get_providers()
         if len(providers) <= 1:
-            QMessageBox.warning(self, "提示", "至少保留一个供应商")
+            AppDialog.show_warning(self, "提示", "至少保留一个供应商")
             return
         active = self._store.get_active()
         if active and active["id"] == self._current_id:
-            QMessageBox.warning(self, "提示", "请先激活其他供应商后再删除")
+            AppDialog.show_warning(self, "提示", "请先激活其他供应商后再删除")
             return
         self._store.delete_provider(self._current_id)
         self.refresh_provider_status()
@@ -285,7 +285,7 @@ class SettingsTab(QWidget):
         url = self.url_edit.text().strip().rstrip("/")
         key = self.key_edit.text().strip()
         if not url or not key:
-            QMessageBox.warning(self, "提示", "请先填写 Base URL 和 API Key")
+            AppDialog.show_warning(self, "提示", "请先填写 Base URL 和 API Key")
             return
         self._testing = True
         self.test_btn.setEnabled(False)
@@ -306,6 +306,6 @@ class SettingsTab(QWidget):
         self.test_btn.setEnabled(True)
         self.test_btn.setText("测试连接")
         if ok:
-            QMessageBox.information(self, "测试连接", f"连接成功({msg})")
+            AppDialog.show_success(self, "测试连接", f"连接成功({msg})")
         else:
-            QMessageBox.warning(self, "测试连接", f"连接失败: {msg}")
+            AppDialog.show_error(self, "测试连接", f"连接失败: {msg}")

@@ -6,7 +6,6 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QProgressBar,
     QPushButton,
     QSlider,
@@ -16,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from gui.theme import BRAND, INK_2, INK_3, STATE_INFO
+from gui.widgets import AppDialog
 
 
 class PlayerTab(QWidget):
@@ -203,7 +203,7 @@ class PlayerTab(QWidget):
             return
         score = self._db.get_score(self._score_id)
         if not score or not score["notes"]:
-            QMessageBox.warning(self, "提示", "该乐谱没有音符数据")
+            AppDialog.show_warning(self, "提示", "该乐谱没有音符数据")
             return
         self._pending = (score["notes"], self.bpm_spin.value())
         self._had_error = False

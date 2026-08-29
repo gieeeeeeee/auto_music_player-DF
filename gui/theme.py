@@ -286,7 +286,7 @@ QScrollBar:vertical {{
 QScrollBar::handle:vertical {{
     background: {SURFACE_3};
     border-radius: 5px;
-    min-height: 30px;
+    min-height: 40px;
 }}
 QScrollBar::handle:vertical:hover {{
     background: {LINE_2};
@@ -304,13 +304,30 @@ QScrollBar:horizontal {{
 QScrollBar::handle:horizontal {{
     background: {SURFACE_3};
     border-radius: 5px;
-    min-width: 30px;
+    min-width: 40px;
+}}
+QScrollBar::handle:horizontal:hover {{
+    background: {LINE_2};
 }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
     width: 0;
 }}
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
     background: transparent;
+}}
+
+/* ---------- 分隔条(QSplitter,可拖动调整识别结果/校对表格比例) ---------- */
+QSplitter::handle {{
+    background: {LINE};
+}}
+QSplitter::handle:hover {{
+    background: {BRAND_3};
+}}
+QSplitter::handle:vertical {{
+    height: 6px;
+}}
+QSplitter::handle:horizontal {{
+    width: 6px;
 }}
 
 /* ---------- 进度条 ---------- */

@@ -23,6 +23,12 @@ def run():
     app.setStyleSheet(m.APP_QSS)
     win = m.MainWindow(cfg, db, keymap, recognizer, player, settings_store)
     win.show()
+    # AppDialog 组件冒烟:五种类型可构造不崩溃
+    from gui.widgets import AppDialog
+
+    for dtype in ("success", "info", "warning", "error", "confirm"):
+        dlg = AppDialog(win, dtype, "冒烟测试", "组件构建验证", [("知道了", "primary")])
+        dlg.deleteLater()
     QTimer.singleShot(1500, app.quit)
     rc = app.exec()
     db.conn.close()

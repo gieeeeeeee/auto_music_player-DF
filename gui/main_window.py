@@ -1,12 +1,18 @@
-"""主窗口:自绘标题栏(标准 Windows 风格按钮) + 侧边栏导航 + 页面堆栈 + 状态栏。"""
+"""主窗口:自绘标题栏(标准 Windows 风格按钮) + 侧边栏导航 + 页面堆栈 + 状态栏。
+
+无边框窗口支持:
+- 标题栏拖动 / 双击最大化
+- 八方向边缘拉伸(边缘 6px 命中,优先于标题栏拖动;最大化时禁用)
+"""
 
 import ctypes
 
 from pynput import keyboard as pk
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QCursor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QAbstractButton,
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -14,6 +20,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QPushButton,
+    QSizeGrip,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -22,7 +29,16 @@ from PyQt6.QtWidgets import (
 from gui.library_tab import LibraryTab
 from gui.player_tab import PlayerTab
 from gui.settings_tab import SettingsTab
-from gui.theme import BRAND, INK, INK_2, INK_3, STATE_ERROR, STATE_SUCCESS, STATE_WARNING, SURFACE_3
+from gui.theme import (
+    BRAND,
+    INK,
+    INK_2,
+    INK_3,
+    STATE_ERROR,
+    STATE_SUCCESS,
+    STATE_WARNING,
+    SURFACE_3,
+)
 from gui.upload_tab import UploadTab
 
 NAV_ITEMS = [
@@ -33,9 +49,20 @@ NAV_ITEMS = [
 ]
 
 TITLE_BAR_HEIGHT = 32
-WIN_BTN_WIDTH = 46
 SIDEBAR_WIDTH = 240
 STATUS_BAR_HEIGHT = 28
+RESIZE_MARGIN = 6
+
+_RESIZE_CURSORS = {
+    "l": Qt.CursorShape.SizeHorCursor,
+    "r": Qt.CursorShape.SizeHorCursor,
+    "t": Qt.CursorShape.SizeVerCursor,
+    "b": Qt.CursorShape.SizeVerCursor,
+    "tl": Qt.CursorShape.SizeFDiagCursor,
+    "br": Qt.CursorShape.SizeFDiagCursor,
+    "tr": Qt.CursorShape.SizeBDiagCursor,
+    "bl": Qt.CursorShape.SizeBDiagCursor,
+}
 
 
 class TitleBarBtn(QAbstractButton):
@@ -46,11 +73,9 @@ class TitleBarBtn(QAbstractButton):
         self._kind = kind  # "min" / "max" / "close"
         self._hover = False
         self._is_maximized = False
-        self.setFixedSize(WIN_BTN_WIDTH, TITLE_BAR_HEIGHT)
+        self.setFixedSize(46, TITLE_BAR_HEIGHT)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.setToolTip(
-            {"min": "最小化", "max": "最大化", "close": "关闭"}[kind]
-        )
+        self.setToolTip({"min": "最小化", "max": "最大化", "close": "关闭"}[kind])
 
     def set_maximized(self, maximized: bool):
         if self._is_maximized != maximized:
@@ -139,9 +164,14 @@ class MainWindow(QMainWindow):
         self._drag_pos = None
         self._is_maximized = False
         self._normal_geometry = None
+        # 边缘拉伸状态
+        self._resize_dir = None
+        self._press_pos = None
+        self._press_geometry = None
 
         self.setWindowTitle("自动演奏器")
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+        self.setMouseTracking(True)
         self.resize(1080, 720)
         self.setMinimumSize(900, 600)
 
@@ -163,6 +193,9 @@ class MainWindow(QMainWindow):
 
         self.player_tab.refresh()
         self.settings_tab.refresh_provider_status()
+
+        # 应用级事件过滤器:子控件覆盖边缘时也能命中拉伸
+        QApplication.instance().installEventFilter(self)
 
     def _build_ui(self):
         root = QWidget()
@@ -200,8 +233,7 @@ class MainWindow(QMainWindow):
         self.nav.setObjectName("SidebarNav")
         self.nav.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         for text, icon in NAV_ITEMS:
-            item = QListWidgetItem(f"{icon}  {text}")
-            self.nav.addItem(item)
+            self.nav.addItem(QListWidgetItem(f"{icon}  {text}"))
         self.nav.currentRowChanged.connect(self._switch_page)
         sidebar_layout.addWidget(self.nav, 1)
 
@@ -224,7 +256,7 @@ class MainWindow(QMainWindow):
         status_bar.setObjectName("StatusBar")
         status_bar.setFixedHeight(STATUS_BAR_HEIGHT)
         status_layout = QHBoxLayout(status_bar)
-        status_layout.setContentsMargins(16, 0, 16, 0)
+        status_layout.setContentsMargins(16, 0, 4, 0)
         status_layout.setSpacing(12)
         dot = QLabel()
         dot.setObjectName("StatusDot")
@@ -232,9 +264,7 @@ class MainWindow(QMainWindow):
         self.status_label.setObjectName("StatusText")
         hotkey_label = QLabel("按 F8 可随时停止演奏")
         hotkey_label.setObjectName("StatusText")
-        hotkey_label.setToolTip(
-            "全局热键 F8:无论焦点在哪个窗口,按下 F8 会立即停止当前演奏"
-        )
+        hotkey_label.setToolTip("全局热键 F8:无论焦点在哪个窗口,按下 F8 会立即停止当前演奏")
         status_layout.addWidget(dot)
         status_layout.addWidget(self.status_label)
         status_layout.addStretch(1)
@@ -242,16 +272,12 @@ class MainWindow(QMainWindow):
             admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
         except Exception:
             admin = False
-        perm_label = QLabel(
-            "管理员权限" if admin else "普通权限 · 游戏收不到按键时请以管理员运行"
-        )
+        perm_label = QLabel("管理员权限" if admin else "普通权限 · 游戏收不到按键时请以管理员运行")
         perm_label.setObjectName("StatusText")
-        perm_label.setStyleSheet(
-            f"color: {STATE_SUCCESS};" if admin else f"color: {STATE_WARNING};"
-        )
+        perm_label.setStyleSheet(f"color: {STATE_SUCCESS};" if admin else f"color: {STATE_WARNING};")
         status_layout.addWidget(perm_label)
         status_layout.addWidget(hotkey_label)
-        status_layout.addWidget(QLabel("v1.0", objectName="StatusText"))
+        status_layout.addWidget(QSizeGrip(status_bar))
         root_layout.addWidget(status_bar)
 
         self.setCentralWidget(root)
@@ -261,7 +287,10 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(row)
 
     def _go_play(self, score_id: int):
-        self.stack.setCurrentIndex(2)
+        """统一跳转入口:侧边栏选中态与页面同步。"""
+        self.nav.setCurrentRow(2)
+        if self.stack.currentIndex() != 2:
+            self.stack.setCurrentIndex(2)
         self.player_tab.select_score(score_id)
 
     def set_status(self, text: str):
@@ -276,7 +305,83 @@ class MainWindow(QMainWindow):
             f"识别模型: {provider['name']} · {provider['model']}" if provider else "识别模型: 内置样例(stub)"
         )
 
-    # ---------- 无边框窗口拖动/最大化 ----------
+    # ---------- 边缘拉伸 ----------
+
+    def _hit_dir(self, gpos):
+        """光标相对窗口边缘的位置 → 拉伸方向;不在边缘返回 None。"""
+        if self._is_maximized:
+            return None
+        frame = self.frameGeometry()
+        x = gpos.x() - frame.left()
+        y = gpos.y() - frame.top()
+        w, h, m = frame.width(), frame.height(), RESIZE_MARGIN
+        if not (0 <= x < w and 0 <= y < h):
+            return None
+        left, right = x < m, x >= w - m
+        top, bottom = y < m, y >= h - m
+        if left and top:
+            return "tl"
+        if right and top:
+            return "tr"
+        if left and bottom:
+            return "bl"
+        if right and bottom:
+            return "br"
+        if left:
+            return "l"
+        if right:
+            return "r"
+        if top:
+            return "t"
+        if bottom:
+            return "b"
+        return None
+
+    def eventFilter(self, obj, event):
+        et = event.type()
+        if et == QEvent.Type.MouseMove:
+            gpos = event.globalPosition().toPoint()
+            if self._resize_dir:
+                self._do_resize(gpos)
+                return False
+            direction = self._hit_dir(gpos)
+            if direction and obj in (self, self.title_bar, self.centralWidget()):
+                self.setCursor(_RESIZE_CURSORS[direction])
+            elif obj in (self, self.title_bar, self.centralWidget()):
+                self.unsetCursor()
+            return False
+        if et == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            direction = self._hit_dir(event.globalPosition().toPoint())
+            if direction:
+                self._resize_dir = direction
+                self._press_pos = event.globalPosition().toPoint()
+                self._press_geometry = self.frameGeometry()
+                return True  # 吞掉,避免子控件响应误触
+            return False
+        if et == QEvent.Type.MouseButtonRelease and self._resize_dir:
+            self._resize_dir = None
+            self.unsetCursor()
+            return False
+        return super().eventFilter(obj, event)
+
+    def _do_resize(self, gpos):
+        d, g0 = self._resize_dir, self._press_geometry
+        dx = gpos.x() - self._press_pos.x()
+        dy = gpos.y() - self._press_pos.y()
+        l, t = g0.left(), g0.top()
+        r, b = g0.right(), g0.bottom()
+        min_w, min_h = self.minimumWidth(), self.minimumHeight()
+        if "l" in d:
+            l = min(g0.left() + dx, r - min_w)
+        if "r" in d:
+            r = max(g0.right() + dx, l + min_w)
+        if "t" in d:
+            t = min(g0.top() + dy, b - min_h)
+        if "b" in d:
+            b = max(g0.bottom() + dy, t + min_h)
+        self.setGeometry(l, t, r - l + 1, b - t + 1)
+
+    # ---------- 标题栏拖动 / 最大化 ----------
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and event.position().y() <= TITLE_BAR_HEIGHT:

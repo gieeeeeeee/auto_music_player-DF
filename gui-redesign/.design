@@ -184,24 +184,6 @@
           }
         ]
       }
-    },
-    {
-      "id": "image-002",
-      "title": "image",
-      "type": "image",
-      "version": 1,
-      "createdAt": 1787926262121,
-      "canvasData": {
-        "x": 1752,
-        "y": 1140,
-        "naturalSize": {
-          "width": 1789,
-          "height": 1071
-        }
-      },
-      "devMetadata": {
-        "imageSrc": "assets/image.png"
-      }
     }
   ],
   "config": {

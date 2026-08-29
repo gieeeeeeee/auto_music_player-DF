@@ -6,6 +6,7 @@ import shutil
 import sys
 
 import yaml
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
 from core.database import ScoreDB
@@ -29,6 +30,19 @@ def is_admin() -> bool:
         return False
 
 
+def app_icon():
+    """应用图标:任务栏与窗口图标。"""
+    candidates = []
+    if getattr(sys, "frozen", False):
+        candidates.append(os.path.join(getattr(sys, "_MEIPASS", ""), "app.ico"))
+        candidates.append(os.path.join(os.path.dirname(sys.executable), "app.ico"))
+    candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.ico"))
+    for c in candidates:
+        if c and os.path.exists(c):
+            return QIcon(c)
+    return None
+
+
 def ensure_config() -> str:
     """切到数据目录并保证 config.yaml 可用。
 
@@ -47,6 +61,12 @@ def ensure_config() -> str:
     return "config.yaml"
 
 
+def resource_path(name: str) -> str:
+    """打包后资源在 _MEIPASS 临时目录;开发时在项目根目录。"""
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, name)
+
+
 def main():
     cfg = load_config(ensure_config())
     app_cfg = cfg.get("app", {})
@@ -58,8 +78,20 @@ def main():
     recognizer = get_recognizer_from_provider(provider) if provider else StubRecognizer()
     player = Player(keymap)
 
+    # Windows 任务栏分组图标:显式 AppUserModelID 让任务栏显示自定义图标而非 Python 默认图标
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("AutoMusicPlayer.App")
+    except Exception:
+        pass
+
     app = QApplication(sys.argv)
+    icon = app_icon()
+    if icon:
+        app.setWindowIcon(icon)
     app.setStyleSheet(APP_QSS)
+    icon_path = resource_path("app.ico")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
     win = MainWindow(cfg, db, keymap, recognizer, player, settings_store)
     win.show()
     sys.exit(app.exec())

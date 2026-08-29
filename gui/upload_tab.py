@@ -13,10 +13,10 @@ from PyQt6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 
 from core.parser import parse_jianpu
 from gui.theme import BRAND, BRAND_SOFT, LINE_2, SURFACE_2, STATE_ERROR
+from gui.widgets import AppDialog, BottomResizableCard
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 _TEXT_EXTS = {".md", ".txt", ".docx", ".doc"}
@@ -148,13 +149,24 @@ class UploadTab(QWidget):
     def set_recognizer(self, recognizer):
         self._recognizer = recognizer
 
-    def _card(self):
-        card = QFrame()
+    def _card(self, resizable=False):
+        if resizable:
+            card = BottomResizableCard()
+        else:
+            card = QFrame()
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         card.setObjectName("SectionCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
         return card, layout
+
+    def _fix_card_cursors(self, card):
+        """子控件显式光标,避免继承底边拉伸光标。"""
+        for w in card.findChildren(QLabel):
+            w.setCursor(Qt.CursorShape.ArrowCursor)
+        for w in card.findChildren(QTableWidget):
+            w.setCursor(Qt.CursorShape.ArrowCursor)
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -169,7 +181,6 @@ class UploadTab(QWidget):
         inner_layout = QVBoxLayout(inner)
         inner_layout.setContentsMargins(32, 24, 32, 24)
         inner_layout.setSpacing(16)
-        inner_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         scroll.setWidget(inner)
         root.addWidget(scroll)
 
@@ -208,24 +219,28 @@ class UploadTab(QWidget):
         lay.addLayout(btn_row)
         inner_layout.addWidget(card)
 
-        # 步骤3:识别结果
-        card, lay = self._card()
-        lay.addLayout(_step_row("3", "识别结果", "可手动修改,修改后重新\"解析到校对表格\""))
+        # 步骤3:识别结果(底部边缘可拖高,总滚动条随高度同步)
+        card3, lay3 = self._card(resizable=True)
+        card3.setup(height=200, min_height=160)
+        lay3.addLayout(_step_row("3", "识别结果", "可手动修改,修改后重新\"解析到校对表格\""))
         self.raw_text = QPlainTextEdit()
         self.raw_text.setPlaceholderText("识别结果将显示在这里...")
-        lay.addWidget(self.raw_text)
-        inner_layout.addWidget(card)
+        self.raw_text.setCursor(Qt.CursorShape.IBeamCursor)
+        lay3.addWidget(self.raw_text, 1)
+        self._fix_card_cursors(card3)
+        inner_layout.addWidget(card3)
 
-        # 步骤4:校对表格
-        card, lay = self._card()
-        lay.addLayout(_step_row("4", "校对表格", "音符列可写和弦,如 high_1,mid_3;时值单位:拍"))
+        # 步骤4:校对表格(底部边缘可拖高,总滚动条随高度同步)
+        card4, lay4 = self._card(resizable=True)
+        card4.setup(height=300, min_height=220)
+        lay4.addLayout(_step_row("4", "校对表格", "音符列可写和弦,如 high_1,mid_3;时值单位:拍"))
         self.table = QTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(["音符", "时值(拍)"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        lay.addWidget(self.table, 1)
+        lay4.addWidget(self.table, 1)
         edit_row = QHBoxLayout()
         add_btn = QPushButton("添加行")
         add_btn.setObjectName("BtnSecondary")
@@ -240,8 +255,9 @@ class UploadTab(QWidget):
         edit_row.addWidget(del_btn)
         edit_row.addWidget(clear_btn)
         edit_row.addStretch(1)
-        lay.addLayout(edit_row)
-        inner_layout.addWidget(card)
+        lay4.addLayout(edit_row)
+        self._fix_card_cursors(card4)
+        inner_layout.addWidget(card4)
 
         # 步骤5:保存
         card, lay = self._card()
@@ -324,20 +340,20 @@ class UploadTab(QWidget):
     def _on_recognize_failed(self, msg: str):
         self.recognize_btn.setEnabled(True)
         self.recognize_btn.setText("开始识别")
-        QMessageBox.warning(self, "识别失败", msg)
+        AppDialog.show_error(self, "识别失败", msg)
 
     def _parse(self):
         raw = self.raw_text.toPlainText().strip()
         if not raw:
-            QMessageBox.warning(self, "提示", "识别结果为空,请先识别或手动输入简谱")
+            AppDialog.show_warning(self, "提示", "识别结果为空,请先识别或手动输入简谱")
             return
         try:
             notes = parse_jianpu(raw)
         except Exception as e:
-            QMessageBox.warning(self, "解析失败", str(e))
+            AppDialog.show_error(self, "解析失败", str(e))
             return
         if not notes:
-            QMessageBox.warning(self, "提示", "未能从文本中解析出音符,请检查格式")
+            AppDialog.show_warning(self, "提示", "未能从文本中解析出音符,请检查格式")
             return
         self.table.setRowCount(0)
         for n in notes:
@@ -382,15 +398,15 @@ class UploadTab(QWidget):
     def _save(self):
         name = self.name_edit.text().strip()
         if not name:
-            QMessageBox.warning(self, "提示", "请填写乐谱名称")
+            AppDialog.show_warning(self, "提示", "请填写乐谱名称")
             return
         try:
             notes = self._table_to_notes()
         except ValueError as e:
-            QMessageBox.warning(self, "保存失败", str(e))
+            AppDialog.show_error(self, "保存失败", str(e))
             return
         if not notes:
-            QMessageBox.warning(self, "提示", "表格为空,无法保存")
+            AppDialog.show_warning(self, "提示", "表格为空,无法保存")
             return
         source_file = ""
         if self._selected_path:
@@ -407,5 +423,5 @@ class UploadTab(QWidget):
             source_type=self._source_type,
             bpm_default=self.bpm_spin.value(),
         )
-        QMessageBox.information(self, "成功", f"《{name}》已保存到乐谱库")
+        AppDialog.show_success(self, "成功", f"《{name}》已保存到乐谱库")
         self.saved.emit()

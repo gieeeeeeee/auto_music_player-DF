@@ -6,7 +6,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -15,6 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from gui.theme import BRAND, INK_2, STATE_INFO, STATE_SUCCESS
+from gui.widgets import AppDialog
 
 
 class LibraryTab(QWidget):
@@ -97,7 +97,7 @@ class LibraryTab(QWidget):
     def _selected_id(self):
         rows = {i.row() for i in self.table.selectedIndexes()}
         if not rows:
-            QMessageBox.information(self, "提示", "请先在列表中选择一条乐谱")
+            AppDialog.show_info(self, "提示", "请先在列表中选择一条乐谱")
             return None
         row = sorted(rows)[0]
         return int(self.table.item(row, 0).text())
@@ -111,8 +111,14 @@ class LibraryTab(QWidget):
             self.go_play.emit(score_id)
 
     def _delete_selected(self):
-        score_id = self._selected_id()
-        if score_id is None:
+        rows = {i.row() for i in self.table.selectedIndexes()}
+        if not rows:
+            AppDialog.show_info(self, "提示", "请先在列表中选择一条乐谱")
+            return
+        row = sorted(rows)[0]
+        score_id = int(self.table.item(row, 0).text())
+        name = self.table.item(row, 1).text()
+        if not AppDialog.confirm(self, "删除乐谱", f"确定删除《{name}》吗?此操作不可恢复。"):
             return
         self._db.delete_score(score_id)
         self.refresh()

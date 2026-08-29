@@ -37,10 +37,18 @@ def _extract_text(path: str) -> str:
         with open(path, encoding="utf-8", errors="replace") as f:
             return f.read()
     if ext == ".docx":
-        import docx
+        # docx 本质是 zip + XML,用标准库提取正文,免去 python-docx/lxml 重依赖
+        import xml.etree.ElementTree as ET
+        import zipfile
 
-        d = docx.Document(path)
-        return "\n".join(p.text for p in d.paragraphs)
+        ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+        with zipfile.ZipFile(path) as z:
+            root = ET.fromstring(z.read("word/document.xml"))
+        paragraphs = []
+        for p in root.iter(f"{ns}p"):
+            texts = [t.text or "" for t in p.iter(f"{ns}t")]
+            paragraphs.append("".join(texts))
+        return "\n".join(paragraphs)
     if ext == ".doc":
         raise ValueError(".doc 旧格式暂不支持,请另存为 .docx 或 .md")
     raise ValueError(f"不支持的文件类型: {ext}")

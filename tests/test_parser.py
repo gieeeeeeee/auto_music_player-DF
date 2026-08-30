@@ -32,6 +32,11 @@ class TestParser(unittest.TestCase):
         r = parse_jianpu("5- 3_ 1__ 7--")
         self.assertEqual([n["dur"] for n in r], [2.0, 0.5, 0.25, 4.0])
 
+    def test_dash_duration_boundary(self):
+        """固化减号规则:一个 - = 二分(2拍),-- = 全音符(4拍),--- = 8拍(超协议但行为确定)。"""
+        r = parse_jianpu("5- 5-- 5---")
+        self.assertEqual([n["dur"] for n in r], [2.0, 4.0, 8.0])
+
     def test_dotted(self):
         r = parse_jianpu("5_· 1·")
         self.assertEqual([(n["notes"], n["dur"]) for n in r],
@@ -66,6 +71,58 @@ class TestParser(unittest.TestCase):
         self.assertIn({"notes": ["high_5"], "dur": 2.0}, r)
         self.assertIn({"notes": ["high_1", "high_3", "high_5"], "dur": 2.0}, r)
         self.assertIn({"notes": ["low_5"], "dur": 1.0}, r)
+
+
+class TestCollectMode(unittest.TestCase):
+    def test_collect_clean(self):
+        notes, errors = parse_jianpu("1 2 3", collect=True)
+        self.assertEqual(errors, [])
+        self.assertEqual([n["notes"][0] for n in notes], ["mid_1", "mid_2", "mid_3"])
+
+    def test_collect_garbage(self):
+        notes, errors = parse_jianpu("1 @ 2", collect=True)
+        self.assertEqual(len(notes), 2)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].token, "@")
+        self.assertEqual(errors[0].line, 1)
+        self.assertIn("无法识别", errors[0].reason)
+
+    def test_collect_line_numbers(self):
+        _, errors = parse_jianpu("1 2\n#\n3", collect=True)
+        self.assertEqual([e.line for e in errors], [2])
+
+    def test_collect_chord_invalid_inner(self):
+        notes, errors = parse_jianpu("[1 8 5]", collect=True)
+        self.assertEqual(notes, [{"notes": ["mid_1", "mid_5"], "dur": 1.0}])
+        self.assertEqual([e.token for e in errors], ["8"])
+
+    def test_collect_rest_with_octave_mark(self):
+        notes, errors = parse_jianpu("0'", collect=True)
+        self.assertEqual(notes, [{"notes": [], "dur": 1.0}])
+        self.assertIn("八度", errors[0].reason)
+
+    def test_lenient_matches_collect_notes(self):
+        text = "1 @ 2 [1 8] 0' 3_"
+        a = parse_jianpu(text)
+        b, _ = parse_jianpu(text, collect=True)
+        self.assertEqual(a, b)
+
+    def test_default_returns_list(self):
+        self.assertIsInstance(parse_jianpu("1 2"), list)
+
+
+class TestTokenOrder(unittest.TestCase):
+    def test_mixed_chord_keeps_position(self):
+        """和弦与单音混排时按真实顺序输出(旧实现把和弦统一挪到行尾)。"""
+        r = parse_jianpu("1 [5] 3")
+        self.assertEqual(
+            r,
+            [
+                {"notes": ["mid_1"], "dur": 1.0},
+                {"notes": ["mid_5"], "dur": 1.0},
+                {"notes": ["mid_3"], "dur": 1.0},
+            ],
+        )
 
 
 if __name__ == "__main__":

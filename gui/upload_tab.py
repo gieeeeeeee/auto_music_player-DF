@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.parser import parse_jianpu
+from core.score_model import validate_notes
 from gui.theme import BRAND, BRAND_SOFT, LINE_2, SURFACE_2, STATE_ERROR
 from gui.widgets import AppDialog, BottomResizableCard
 
@@ -134,12 +135,13 @@ class UploadTab(QWidget):
     recognized = pyqtSignal(str)
     recognize_failed = pyqtSignal(str)
 
-    def __init__(self, db, recognizer, keymap, upload_dir="data/uploads"):
+    def __init__(self, db, recognizer, keymap, upload_dir="data/uploads", advisor_fn=None):
         super().__init__()
         self._db = db
         self._recognizer = recognizer
         self._keymap = keymap
         self._upload_dir = upload_dir
+        self._advisor_fn = advisor_fn   # () -> (advisor_cfg, provider) 由主窗口提供
         self._selected_path = None
         self._source_type = ""
         self._build_ui()
@@ -215,6 +217,11 @@ class UploadTab(QWidget):
         self.parse_btn.clicked.connect(self._parse)
         btn_row.addWidget(self.recognize_btn)
         btn_row.addWidget(self.parse_btn)
+        self.advisor_btn = QPushButton("AI 编谱建议")
+        self.advisor_btn.setObjectName("BtnSecondary")
+        self.advisor_btn.setToolTip("实验性:输入旋律描述或简谱片段,生成符合 21 键的编谱建议(需在模型设置页配置供应商)")
+        self.advisor_btn.clicked.connect(self._open_advisor)
+        btn_row.addWidget(self.advisor_btn)
         btn_row.addStretch(1)
         lay.addLayout(btn_row)
         inner_layout.addWidget(card)
@@ -321,6 +328,29 @@ class UploadTab(QWidget):
         t = threading.Thread(target=self._recognize_worker, args=(path, source_type), daemon=True)
         t.start()
 
+    # ---------- AI 编谱建议(实验性) ----------
+
+    def _open_advisor(self):
+        if self._advisor_fn is None:
+            AppDialog.show_warning(self, "提示", "编谱建议功能未启用")
+            return
+        advisor_cfg, provider = self._advisor_fn()
+        if not (advisor_cfg or {}).get("enabled"):
+            AppDialog.show_warning(
+                self, "功能未开启",
+                "AI 编谱建议为实验性功能,请在 config.yaml 中设置:\nadvisor:\n  enabled: true",
+            )
+            return
+        from gui.advisor_dialog import AdvisorDialog
+
+        AdvisorDialog(self, advisor_cfg, provider, on_accept=self._fill_from_advisor).exec()
+
+    def _fill_from_advisor(self, text: str):
+        """确认后的简谱填入识别结果框,走既有解析/校对/保存流程(用户确认后才入库)。"""
+        self.raw_text.setPlainText(text)
+        self.parse_btn.setEnabled(True)
+        AppDialog.show_info(self, "已填入", "编谱建议已填入识别结果,请点击「解析到校对表格」继续校对与保存。")
+
     def _recognize_worker(self, path, source_type):
         try:
             if source_type == "image":
@@ -383,16 +413,15 @@ class UploadTab(QWidget):
                 dur = float(dur_str)
             except ValueError:
                 raise ValueError(f"第 {row + 1} 行时值不是数字: {dur_str}")
-            if dur <= 0:
-                raise ValueError(f"第 {row + 1} 行时值必须大于 0")
-            if notes_str == "(休止)":
-                note_ids = []
-            else:
-                note_ids = [x.strip() for x in notes_str.split(",") if x.strip()]
-                for nid in note_ids:
-                    if self._keymap.key_for(nid) is None:
-                        raise ValueError(f"第 {row + 1} 行音符无效: {nid}(应为 high/mid/low_1~7)")
+            note_ids = [] if notes_str == "(休止)" else [x.strip() for x in notes_str.split(",") if x.strip()]
             notes.append({"notes": note_ids, "dur": dur})
+        # 格式/取值校验统一交给 Schema 校验器(与入库校验同一套规则)
+        errors = validate_notes(notes)
+        if errors:
+            summary = "\n".join(str(e) for e in errors[:6])
+            if len(errors) > 6:
+                summary += f"\n... 共 {len(errors)} 个错误"
+            raise ValueError(summary)
         return notes
 
     def _save(self):

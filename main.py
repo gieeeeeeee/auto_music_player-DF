@@ -1,16 +1,19 @@
 """入口:加载配置,组装数据库/识别器/按键映射/演奏器,启动 GUI(暗色琥珀金主题)。"""
 
+import atexit
 import ctypes
 import os
 import shutil
 import sys
 
 import yaml
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
 from core.database import ScoreDB
 from core.keymap import KeyMap
+from core.play_logger import PlayLogger
 from core.player import Player
 from core.recognizer import StubRecognizer, get_recognizer_from_provider
 from core.settings_store import SettingsStore
@@ -68,15 +71,23 @@ def resource_path(name: str) -> str:
 
 
 def main():
-    cfg = load_config(ensure_config())
+    config_path = ensure_config()
+    cfg = load_config(config_path)
     app_cfg = cfg.get("app", {})
     data_dir = app_cfg.get("data_dir", "data")
+    player_cfg = cfg.get("player", {})
     db = ScoreDB(os.path.join(data_dir, app_cfg.get("db_file", "scores.db")))
     keymap = KeyMap(cfg["keymap"])
     settings_store = SettingsStore(os.path.join(data_dir, "settings.json"))
     provider = settings_store.get_active()
     recognizer = get_recognizer_from_provider(provider) if provider else StubRecognizer()
-    player = Player(keymap)
+    player = Player(
+        keymap,
+        logger=PlayLogger(os.path.join(data_dir, "logs")),
+        latency_compensation_ms=float(player_cfg.get("latency_compensation_ms", 0)),
+    )
+    # 进程退出兜底:任何退出路径(atexit)都停止演奏并释放全部按键,防止键卡死
+    atexit.register(player.shutdown)
 
     # Windows 任务栏分组图标:显式 AppUserModelID 让任务栏显示自定义图标而非 Python 默认图标
     try:
@@ -85,6 +96,8 @@ def main():
         pass
 
     app = QApplication(sys.argv)
+    # 显式声明高 DPI 缩放策略:125%/150% 等缩放下按逻辑像素平滑渲染,避免打包环境差异
+    QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     icon = app_icon()
     if icon:
         app.setWindowIcon(icon)
@@ -92,7 +105,7 @@ def main():
     icon_path = resource_path("app.ico")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
-    win = MainWindow(cfg, db, keymap, recognizer, player, settings_store)
+    win = MainWindow(cfg, db, keymap, recognizer, player, settings_store, config_path=config_path)
     win.show()
     sys.exit(app.exec())
 

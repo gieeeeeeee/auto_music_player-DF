@@ -9,7 +9,7 @@ import ctypes
 
 from pynput import keyboard as pk
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QCursor, QPainter, QPen
+from PyQt6.QtGui import QBrush, QColor, QCursor, QPainter, QPen
 from PyQt6.QtWidgets import (
     QAbstractButton,
     QApplication,
@@ -66,16 +66,21 @@ _RESIZE_CURSORS = {
 
 
 class TitleBarBtn(QAbstractButton):
-    """标准 Windows 风格标题栏按钮(QPainter 自绘横线/方框/X)。"""
+    """标准 Windows 风格标题栏按钮(QPainter 自绘横线/方框/X/小窗)。"""
 
     def __init__(self, kind: str, parent=None):
         super().__init__(parent)
-        self._kind = kind  # "min" / "max" / "close"
+        self._kind = kind  # "min" / "max" / "mini" / "close"
         self._hover = False
         self._is_maximized = False
         self.setFixedSize(46, TITLE_BAR_HEIGHT)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.setToolTip({"min": "最小化", "max": "最大化", "close": "关闭"}[kind])
+        self.setToolTip({
+            "min": "最小化",
+            "max": "最大化",
+            "mini": "切为演奏小窗(悬浮于游戏上方,点击不夺游戏焦点)",
+            "close": "关闭",
+        }[kind])
 
     def set_maximized(self, maximized: bool):
         if self._is_maximized != maximized:
@@ -121,6 +126,12 @@ class TitleBarBtn(QAbstractButton):
                 p.drawLine(cx + 5, cy + 3, cx + 4, cy + 3)
             else:
                 p.drawRect(cx - 5, cy - 5, 10, 10)
+        elif self._kind == "mini":
+            # 画中画:外框 + 右下角小实心块
+            p.drawRect(cx - 6, cy - 5, 11, 9)
+            p.setBrush(QBrush(fg))
+            p.drawRect(cx, cy, 4, 3)
+            p.setBrush(Qt.BrushStyle.NoBrush)
         elif self._kind == "close":
             p.setPen(QPen(fg, 1.2))
             p.drawLine(cx - 5, cy - 5, cx + 5, cy + 5)
@@ -130,6 +141,7 @@ class TitleBarBtn(QAbstractButton):
 class TitleBar(QWidget):
     minimize_requested = pyqtSignal()
     maximize_requested = pyqtSignal()
+    mini_requested = pyqtSignal()
     close_requested = pyqtSignal()
 
     def __init__(self):
@@ -147,23 +159,29 @@ class TitleBar(QWidget):
 
         self.btn_min = TitleBarBtn("min")
         self.btn_max = TitleBarBtn("max")
+        self.btn_mini = TitleBarBtn("mini")
         self.btn_close = TitleBarBtn("close")
         self.btn_min.clicked.connect(self.minimize_requested.emit)
         self.btn_max.clicked.connect(self.maximize_requested.emit)
+        self.btn_mini.clicked.connect(self.mini_requested.emit)
         self.btn_close.clicked.connect(self.close_requested.emit)
         layout.addWidget(self.btn_min)
         layout.addWidget(self.btn_max)
+        layout.addWidget(self.btn_mini)
         layout.addWidget(self.btn_close)
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, cfg, db, keymap, recognizer, player, settings_store):
+    def __init__(self, cfg, db, keymap, recognizer, player, settings_store, config_path=None):
         super().__init__()
         self._cfg = cfg
+        self._player = player
         self._settings_store = settings_store
+        self._config_path = config_path
         self._drag_pos = None
         self._is_maximized = False
         self._normal_geometry = None
+        self._mini_window = None
         # 边缘拉伸状态
         self._resize_dir = None
         self._press_pos = None
@@ -175,9 +193,14 @@ class MainWindow(QMainWindow):
         self.resize(1080, 720)
         self.setMinimumSize(900, 600)
 
-        self.upload_tab = UploadTab(db, recognizer, keymap)
+        self.upload_tab = UploadTab(
+            db,
+            recognizer,
+            keymap,
+            advisor_fn=lambda: (self._cfg.get("advisor") or {}, self._settings_store.get_active()),
+        )
         self.library_tab = LibraryTab(db)
-        self.player_tab = PlayerTab(db, player, cfg.get("player", {}))
+        self.player_tab = PlayerTab(db, player, cfg.get("player", {}), config_path=config_path)
         self.settings_tab = SettingsTab(settings_store)
 
         self._build_ui()
@@ -191,11 +214,23 @@ class MainWindow(QMainWindow):
         self._hotkey_listener = pk.GlobalHotKeys({f"<{hotkey}>": player.stop})
         self._hotkey_listener.start()
 
+        # 退出清理挂在 aboutToQuit(事件循环仍存活)而非 closeEvent:
+        # 窗口析构阶段的 closeEvent 已处于解释器收尾期,此时调用 Win32 会引发进程 fast-fail
+        QApplication.instance().aboutToQuit.connect(self._cleanup_on_quit)
+
         self.player_tab.refresh()
         self.settings_tab.refresh_provider_status()
 
         # 应用级事件过滤器:子控件覆盖边缘时也能命中拉伸
         QApplication.instance().installEventFilter(self)
+
+    def _cleanup_on_quit(self):
+        """退出清理:停全局热键监听与演奏线程,确保全部按键释放。"""
+        try:
+            self._hotkey_listener.stop()
+        except Exception:
+            pass
+        self._player.shutdown()
 
     def _build_ui(self):
         root = QWidget()
@@ -207,6 +242,7 @@ class MainWindow(QMainWindow):
         self.title_bar = TitleBar()
         self.title_bar.minimize_requested.connect(self.showMinimized)
         self.title_bar.maximize_requested.connect(self._toggle_maximize)
+        self.title_bar.mini_requested.connect(self._switch_to_mini)
         self.title_bar.close_requested.connect(self.close)
         root_layout.addWidget(self.title_bar)
 
@@ -237,7 +273,7 @@ class MainWindow(QMainWindow):
         self.nav.currentRowChanged.connect(self._switch_page)
         sidebar_layout.addWidget(self.nav, 1)
 
-        footer = QLabel("v1.0")
+        footer = QLabel("v1.1")
         footer.setObjectName("SidebarFooter")
         sidebar_layout.addWidget(footer)
 
@@ -292,6 +328,26 @@ class MainWindow(QMainWindow):
         if self.stack.currentIndex() != 2:
             self.stack.setCurrentIndex(2)
         self.player_tab.select_score(score_id)
+
+    # ---------- 演奏小窗 ----------
+
+    def _switch_to_mini(self):
+        """切为小窗:隐藏主窗(演奏线程与状态不受影响),显示置顶小窗。"""
+        from gui.mini_window import MiniPlayerWindow
+
+        if self._mini_window is None:
+            self._mini_window = MiniPlayerWindow(self.player_tab, on_restore=self._restore_from_mini)
+        self.player_tab.disable_focus_watch()
+        self._mini_window.show()
+        self.hide()
+
+    def _restore_from_mini(self):
+        if self._mini_window is not None:
+            self._mini_window.hide()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self.player_tab.rearm_focus_watch()
 
     def set_status(self, text: str):
         self.status_label.setText(text)

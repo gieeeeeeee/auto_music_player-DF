@@ -6,9 +6,8 @@
 """
 
 import ctypes
+import sys
 import time
-
-user32 = ctypes.WinDLL("user32", use_last_error=True)
 
 INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP = 0x0002
@@ -16,6 +15,18 @@ KEYEVENTF_SCANCODE = 0x0008
 MAPVK_VK_TO_VSC = 0
 
 ULONG_PTR = ctypes.c_size_t
+
+_user32 = None
+
+
+def _load_user32():
+    """延迟加载 user32:保证本模块在非 Windows 平台可安全导入(便于测试隔离)。"""
+    global _user32
+    if _user32 is None:
+        if sys.platform != "win32":
+            raise OSError("KeyboardDriver 仅支持 Windows(SendInput)")
+        _user32 = ctypes.WinDLL("user32", use_last_error=True)
+    return _user32
 
 
 class MOUSEINPUT(ctypes.Structure):
@@ -82,21 +93,23 @@ class KeyboardDriver:
                 time.sleep(self.CHORD_INTERVAL_MS / 1000.0)
             self._send(k, up=True)
 
-    @staticmethod
-    def _scan_code(key: str) -> int:
+    @classmethod
+    def _scan_code(cls, key: str) -> int:
+        u32 = _load_user32()
         ch = key.upper()
         if "A" <= ch <= "Z" or "0" <= ch <= "9":
             vk = ord(ch)
         else:
-            vk = user32.VkKeyScanW(ord(ch[0])) & 0xFF
-        return user32.MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
+            vk = u32.VkKeyScanW(ord(ch[0])) & 0xFF
+        return u32.MapVirtualKeyW(vk, MAPVK_VK_TO_VSC)
 
     @classmethod
     def _send(cls, key: str, up: bool):
+        u32 = _load_user32()
         scan = cls._scan_code(key)
         flags = KEYEVENTF_SCANCODE | (KEYEVENTF_KEYUP if up else 0)
         inp = INPUT(type=INPUT_KEYBOARD)
         inp.ki = KEYBDINPUT(0, scan, flags, 0, 0)
-        sent = user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
+        sent = u32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
         if sent != 1:
             raise OSError(f"SendInput 发送失败(key={key}, winerror={ctypes.GetLastError()})")

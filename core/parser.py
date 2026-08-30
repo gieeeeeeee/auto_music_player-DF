@@ -9,15 +9,32 @@
 
 输出: [{ "notes": ["high_1"], "dur": 0.5 }, ...]
 dur 单位为拍;休止符 notes 为空列表。
+
+两种模式:
+- 宽容模式(默认):无效记号静默跳过,与历史行为一致
+- collect=True:额外返回错误列表,记录每个无效记号的行号、原文与原因,
+  供识别校对页定位问题;音符输出与宽容模式完全一致
+同一行内记号按从左到右顺序输出,和弦与单音混排时保持真实顺序。
 """
 
 import re
+from dataclasses import dataclass
 
 _PITCH_SUFFIX = {"'": "high", ",": "low"}
 _CHORD_RE = re.compile(r"[\[\(]([^\]\)]+)[\]\)]([_\-.·]*)")
 _NOTE_RE = re.compile(r"[0-7](?:'|,|\.|·|_|-)*")
 _TUNE_LINE_RE = re.compile(r"^\s*1\s*=\s*[A-Ga-g]")
 _CHINESE_RE = re.compile(r"[\u4e00-\u9fff]")
+
+
+@dataclass
+class ParseError:
+    line: int      # 行号,从 1 起
+    token: str     # 原文片段
+    reason: str
+
+    def __str__(self):
+        return f"第 {self.line} 行:记号 '{self.token}'——{self.reason}"
 
 
 def _split_pitch_dur(suffix: str):
@@ -58,30 +75,38 @@ def _note_id(num: int, pitch: str) -> str:
 
 
 def _build_single(token: str):
+    """返回 (音符, 问题)。0 一律为休止;休止带八度记号记为问题,不影响输出。"""
     num = int(token[0])
     pitch, rest = _split_pitch_dur(token[1:])
     dur = _parse_dur(rest)
+    problem = None
     if num == 0:
-        return {"notes": [], "dur": dur}
-    if not 1 <= num <= 7:
-        return None
-    return {"notes": [_note_id(num, pitch)], "dur": dur}
+        if token[1:2] in ("'", ","):
+            problem = "休止符 0 不应带八度记号"
+        return {"notes": [], "dur": dur}, problem
+    return {"notes": [_note_id(num, pitch)], "dur": dur}, problem
 
 
 def _build_chord(inner: str, suffix: str):
+    """返回 (和弦, 无效内部记号列表);空和弦由调用方丢弃。"""
     dur = _parse_dur(suffix)
     note_ids = []
+    invalid = []
     for part in re.split(r"[,\s]+", inner.strip()):
+        if not part:
+            continue
         m = _NOTE_RE.match(part)
         if not m:
+            invalid.append(part)
             continue
         token = m.group(0)
         num = int(token[0])
         if num == 0 or not 1 <= num <= 7:
+            invalid.append(part)
             continue
         pitch, _ = _split_pitch_dur(token[1:])
         note_ids.append(_note_id(num, pitch))
-    return {"notes": note_ids, "dur": dur}
+    return {"notes": note_ids, "dur": dur}, invalid
 
 
 def _is_lyric_line(line: str) -> bool:
@@ -91,29 +116,72 @@ def _is_lyric_line(line: str) -> bool:
     return chinese > digits
 
 
-def _clean_lines(text: str):
-    for raw in text.splitlines():
+def _iter_content_lines(text: str):
+    """枚举 (行号, 内容行);跳过空行、调号行与歌词行。"""
+    for line_no, raw in enumerate(text.splitlines(), 1):
         line = raw.strip()
         if not line:
             continue
         if _TUNE_LINE_RE.match(line) or _is_lyric_line(line):
             continue
         line = line.replace("|", " ").replace("‖", " ")
-        yield line
+        yield line_no, line
 
 
-def parse_jianpu(text: str) -> list[dict]:
-    """解析规范化简谱文本,返回音符序列列表。"""
+def _parse_line(line: str):
+    """解析单行,返回 (音符序列, 问题列表)。问题为 (token, 原因)。"""
+    notes = []
+    problems = []
+    consumed = bytearray(len(line))
+    tokens = []  # (起始位置, 原文, 音符 dict 或 None, 问题或 None)
+
+    for cm in _CHORD_RE.finditer(line):
+        for j in range(cm.start(), cm.end()):
+            consumed[j] = 1
+        chord, invalid = _build_chord(cm.group(1), cm.group(2))
+        for part in invalid:
+            problems.append((part, "和弦内含无效音符"))
+        tokens.append((cm.start(), cm.group(0), chord if chord["notes"] else None, None))
+
+    for m in _NOTE_RE.finditer(line):
+        if any(consumed[m.start():m.end()]):
+            continue  # 和弦跨度内的音符字符
+        note, problem = _build_single(m.group(0))
+        tokens.append((m.start(), m.group(0), note, problem))
+        for j in range(m.start(), m.end()):
+            consumed[j] = 1
+
+    tokens.sort(key=lambda t: t[0])
+    for _, token, note, problem in tokens:
+        if note is not None:
+            notes.append(note)
+        if problem:
+            problems.append((token, problem))
+
+    # 未被任何记号消耗的非空白字符 = 无法识别的内容
+    run_start = None
+    for j in range(len(line) + 1):
+        ch = line[j] if j < len(line) else " "
+        if j < len(line) and not consumed[j] and not ch.isspace():
+            if run_start is None:
+                run_start = j
+        elif run_start is not None:
+            problems.append((line[run_start:j], "无法识别的内容"))
+            run_start = None
+    return notes, problems
+
+
+def parse_jianpu(text: str, *, collect: bool = False):
+    """解析规范化简谱文本。
+
+    collect=False(默认):返回音符序列,无效记号静默跳过(宽容,兼容旧行为)。
+    collect=True:返回 (音符序列, 错误列表),错误含行号/原文/原因。
+    """
     result = []
-    for line in _clean_lines(text):
-        chord_matches = list(_CHORD_RE.finditer(line))
-        single_scan = _CHORD_RE.sub(" ", line)
-        for m in _NOTE_RE.finditer(single_scan):
-            note = _build_single(m.group(0))
-            if note is not None:
-                result.append(note)
-        for cm in chord_matches:
-            note = _build_chord(cm.group(1), cm.group(2))
-            if note["notes"]:
-                result.append(note)
-    return result
+    errors = []
+    for line_no, line in _iter_content_lines(text):
+        notes, problems = _parse_line(line)
+        result.extend(notes)
+        if collect:
+            errors.extend(ParseError(line_no, token, reason) for token, reason in problems)
+    return (result, errors) if collect else result

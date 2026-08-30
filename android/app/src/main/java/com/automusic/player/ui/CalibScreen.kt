@@ -1,5 +1,6 @@
 package com.automusic.player.ui
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -57,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.automusic.player.AppContainer
 import com.automusic.player.calib.KeyLayout
+import com.automusic.player.calib.LayoutStore
 import com.automusic.player.core.KeyPointMap
 import com.automusic.player.core.ScreenMetrics
 import com.automusic.player.input.TouchInjector
@@ -95,6 +97,27 @@ fun CalibScreen(container: AppContainer) {
         }
     }
 
+    val importLayout = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        try {
+            val json = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                ?: throw IllegalArgumentException("无法读取所选文件")
+            val outcome = container.layouts.importJson(json)
+            editingLayout = outcome.layout
+            editingName = outcome.layout.name
+            notice = buildString {
+                append(
+                    "已导入布局《${outcome.layout.name}》" +
+                        "(${outcome.layout.points.size}/${KeyPointMap.ALL_NOTES.size} 键)并设为激活"
+                )
+                if (outcome.renamed) append("\n原 ID 与现有布局冲突,已自动改名避免覆盖")
+                outcome.warnings.forEach { append("\n$it") }
+            }
+        } catch (e: Exception) {
+            notice = "导入失败:${e.message}"
+        }
+    }
+
     val notes = KeyPointMap.ALL_NOTES
     val currentNote = notes.getOrNull(cursor) ?: notes.last()
 
@@ -126,15 +149,35 @@ fun CalibScreen(container: AppContainer) {
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { showNewDialog = true }) { Text("新建布局") }
-                    if (editingLayout != null) {
-                        OutlinedTextField(
-                            value = editingName,
-                            onValueChange = { editingName = it },
-                            label = { Text("布局名称") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                        )
-                    }
+                    OutlinedButton(onClick = {
+                        val target = editingLayout ?: layoutState.active
+                        if (target == null) {
+                            notice = "没有可导出的布局"
+                            return@OutlinedButton
+                        }
+                        try {
+                            val json = LayoutStore.exportLayoutJson(target)
+                            val send = Intent(Intent.ACTION_SEND).apply {
+                                type = "application/json"
+                                putExtra(Intent.EXTRA_TITLE, "amp_layout_${target.id}.json")
+                                putExtra(Intent.EXTRA_TEXT, json)
+                            }
+                            context.startActivity(Intent.createChooser(send, "分享布局"))
+                            notice = "已生成布局分享内容(以文本形式发送,可在另一台设备导入)"
+                        } catch (e: Exception) {
+                            notice = "导出失败:${e.message}"
+                        }
+                    }) { Text("导出布局") }
+                    OutlinedButton(onClick = { importLayout.launch("*/*") }) { Text("导入布局") }
+                }
+                if (editingLayout != null) {
+                    OutlinedTextField(
+                        value = editingName,
+                        onValueChange = { editingName = it },
+                        label = { Text("布局名称") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
                 }
             }
         }

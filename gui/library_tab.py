@@ -3,6 +3,7 @@
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -13,6 +14,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.score_io import export_json, export_midi, import_any
+from core.score_model import ScoreValidationError
 from gui.theme import BRAND, INK_2, STATE_INFO, STATE_SUCCESS
 from gui.widgets import AppDialog
 
@@ -54,10 +57,25 @@ class LibraryTab(QWidget):
         del_btn = QPushButton("删除选中")
         del_btn.setObjectName("BtnDanger")
         del_btn.clicked.connect(self._delete_selected)
+        import_btn = QPushButton("导入乐谱")
+        import_btn.setObjectName("BtnSecondary")
+        import_btn.setToolTip("从 JSON 或 MIDI 文件导入乐谱(.json / .mid / .midi)")
+        import_btn.clicked.connect(self._import_score)
+        exp_json_btn = QPushButton("导出 JSON")
+        exp_json_btn.setObjectName("BtnSecondary")
+        exp_json_btn.setToolTip("导出选中乐谱为 JSON(完整数据结构)")
+        exp_json_btn.clicked.connect(lambda: self._export_selected("json"))
+        exp_midi_btn = QPushButton("导出 MIDI")
+        exp_midi_btn.setObjectName("BtnSecondary")
+        exp_midi_btn.setToolTip("导出选中乐谱为标准 MIDI 文件(Type 0)")
+        exp_midi_btn.clicked.connect(lambda: self._export_selected("midi"))
         btn_row.addWidget(refresh_btn)
         btn_row.addWidget(play_btn)
         btn_row.addWidget(del_btn)
         btn_row.addStretch(1)
+        btn_row.addWidget(import_btn)
+        btn_row.addWidget(exp_json_btn)
+        btn_row.addWidget(exp_midi_btn)
         root.addLayout(btn_row)
 
         self.table = QTableWidget(0, 5)
@@ -84,7 +102,12 @@ class LibraryTab(QWidget):
             name_item = QTableWidgetItem(s["name"])
             name_item.setForeground(QColor("#EDEDF2"))
             src = s["source_type"] or "-"
-            src_item = QTableWidgetItem("图片" if src == "image" else "文档" if src == "document" else "-")
+            src_item = QTableWidgetItem(
+                "图片" if src == "image"
+                else "文档" if src == "document"
+                else "导入" if src == "import"
+                else "-"
+            )
             src_item.setForeground(QColor(STATE_INFO if src == "image" else STATE_SUCCESS))
             bpm_item = QTableWidgetItem(str(s["bpm_default"]))
             bpm_item.setForeground(QColor(BRAND))
@@ -122,3 +145,57 @@ class LibraryTab(QWidget):
             return
         self._db.delete_score(score_id)
         self.refresh()
+
+    # ---------- 导入 / 导出 ----------
+
+    def _import_score(self):
+        path, _ = QFileDialog.getOpenFileName(self, "导入乐谱", "", "乐谱文件 (*.json *.mid *.midi)")
+        if not path:
+            return
+        try:
+            result = import_any(path)
+        except ScoreValidationError as e:
+            AppDialog.show_error(self, "导入失败", f"数据未通过校验:\n{e}")
+            return
+        except (ValueError, OSError) as e:
+            AppDialog.show_error(self, "导入失败", str(e))
+            return
+        if not result.notes:
+            AppDialog.show_warning(self, "导入失败", "未能从文件中解析出任何音符")
+            return
+        info = f"《{result.name}》 · BPM {result.bpm} · {len(result.notes)} 个音符"
+        if result.warnings:
+            info += "\n" + "\n".join(result.warnings[:5])
+        if not AppDialog.confirm(self, "导入确认", info + "\n\n确定加入乐谱库吗?"):
+            return
+        self._db.add_score(
+            name=result.name,
+            notes=result.notes,
+            source_file=path,
+            source_type="import",
+            bpm_default=result.bpm,
+        )
+        self.refresh()
+        AppDialog.show_success(self, "导入成功", f"《{result.name}》已加入乐谱库")
+
+    def _export_selected(self, fmt: str):
+        score_id = self._selected_id()
+        if score_id is None:
+            return
+        score = self._db.get_score(score_id)
+        if score is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, f"导出乐谱({fmt.upper()})", f"{score['name']}.{fmt}", f"{fmt.upper()} (*.{fmt})"
+        )
+        if not path:
+            return
+        try:
+            if fmt == "json":
+                export_json(path, score)
+            else:
+                export_midi(path, score)
+        except (ValueError, OSError) as e:
+            AppDialog.show_error(self, "导出失败", str(e))
+            return
+        AppDialog.show_success(self, "导出成功", f"已导出到:\n{path}")

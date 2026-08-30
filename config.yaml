@@ -13,6 +13,13 @@ recognizer:
   # 识别超时(秒)
   timeout: 120
 
+# AI 编谱建议(实验性):默认关闭;接口凭据复用模型设置页当前激活供应商
+advisor:
+  # 是否启用
+  enabled: false
+  # 编谱用模型名;留空 = 使用激活供应商的模型
+  model: ""
+
 keymap:
   # 高音 1-7
   high: [Q, W, E, R, T, Y, U]
@@ -30,3 +37,13 @@ player:
   gap_ms: 20
   # 全局紧急停止热键
   stop_hotkey: F8
+  # 系统输出延迟补偿(毫秒,延迟校准向导写入;0 = 不补偿)
+  latency_compensation_ms: 0
+  # 目标窗口焦点检测:演奏中失去目标窗口焦点时自动暂停(断点保留,可续播)
+  focus_check:
+    # 是否启用
+    enabled: true
+    # 检测周期(毫秒)
+    poll_interval_ms: 400
+    # 手动指定目标窗口标题子串(大小写不敏感);留空 = 开始演奏时自动快照当前前台窗口
+    target_window_title: ""

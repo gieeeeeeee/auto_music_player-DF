@@ -17,22 +17,36 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from core.window_monitor import FocusLockPolicy, ForegroundWatcher
 from gui.theme import BRAND, INK_2, INK_3, STATE_INFO
 from gui.widgets import AppDialog
 
 
 class PlayerTab(QWidget):
-    def __init__(self, db, player, player_cfg):
+    def __init__(self, db, player, player_cfg, config_path=None):
         super().__init__()
         self._db = db
         self._player = player
+        self._config_path = config_path
         self._hold_ratio = float(player_cfg.get("hold_ratio", 0.75))
         self._gap_ms = float(player_cfg.get("gap_ms", 20))
         self._score_id = None
         self._had_error = False
         self._paused_done = 0
         self._paused_total = 0
+        # 焦点检测:丢失目标窗口焦点时自动暂停,恢复后由用户选择续播或从头
+        focus_cfg = player_cfg.get("focus_check") or {}
+        self._focus_enabled = bool(focus_cfg.get("enabled", True))
+        self._poll_interval_ms = max(100, int(focus_cfg.get("poll_interval_ms", 400)))
+        self._target_title = str(focus_cfg.get("target_window_title", "") or "")
+        self._watcher = ForegroundWatcher(poll_interval=self._poll_interval_ms / 1000.0)
+        self._policy = None
+        self._mini_mode = False
+        self._focus_lost = False
         self._build_ui()
+        self._focus_timer = QTimer(self)
+        self._focus_timer.setInterval(self._poll_interval_ms)
+        self._focus_timer.timeout.connect(self._check_focus)
         self._player.progress.connect(self._on_progress)
         self._player.finished.connect(self._on_finished)
         self._player.paused.connect(self._on_paused)
@@ -127,9 +141,14 @@ class PlayerTab(QWidget):
         self.reset_btn.setEnabled(False)
         self.reset_btn.setToolTip("仅在停止(暂停)后可用:清空演奏进度,下次从头开始")
         self.reset_btn.clicked.connect(self._reset)
+        self.calib_btn = QPushButton("延迟校准")
+        self.calib_btn.setObjectName("BtnSecondary")
+        self.calib_btn.setToolTip("测量本机输出延迟并计算补偿值,消除长曲演奏的节奏漂移")
+        self.calib_btn.clicked.connect(self._open_calibration)
         ctrl_row.addWidget(self.play_btn)
         ctrl_row.addWidget(self.stop_btn)
         ctrl_row.addWidget(self.reset_btn)
+        ctrl_row.addWidget(self.calib_btn)
         ctrl_row.addStretch(1)
         lay.addLayout(ctrl_row)
 
@@ -146,7 +165,7 @@ class PlayerTab(QWidget):
         pos_row.addWidget(self.progress_state)
         lay.addLayout(pos_row)
 
-        hint = QLabel("演奏时请将焦点切到游戏窗口 · 按 F8 可随时暂停演奏")
+        hint = QLabel("演奏时请将焦点切到游戏窗口 · 失去焦点将自动暂停 · 按 F8 可随时暂停演奏")
         hint.setFixedHeight(40)
         hint.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         hint.setStyleSheet(
@@ -228,7 +247,7 @@ class PlayerTab(QWidget):
             AppDialog.show_warning(self, "提示", "该乐谱没有音符数据")
             return
         start_index = self._paused_done if self._paused_done > 0 else 0
-        self._pending = (score["notes"], self.bpm_spin.value(), start_index)
+        self._pending = (score["notes"], self.bpm_spin.value(), start_index, score["name"])
         self._had_error = False
         self._countdown_left = 3
         self.play_btn.setEnabled(False)
@@ -247,8 +266,9 @@ class PlayerTab(QWidget):
             self.progress_state.setText(f"{self._countdown_left} 秒后开始演奏,请切换到游戏窗口...")
             return
         self._countdown_timer.stop()
-        notes, bpm, start_index = self._pending
-        self._player.play(notes, bpm, self._hold_ratio, self._gap_ms, start_index=start_index)
+        notes, bpm, start_index, score_name = self._pending
+        self._start_focus_watch()
+        self._player.play(notes, bpm, self._hold_ratio, self._gap_ms, start_index=start_index, score_name=score_name)
         self.state_label.setText(f"演奏中 BPM {bpm}")
         self.progress_state.setText("演奏中...")
 
@@ -263,6 +283,108 @@ class PlayerTab(QWidget):
         self._player.stop()
         self.progress_state.setText("正在暂停...")
 
+    # ---------- 焦点检测 ----------
+
+    def _own_hwnd(self):
+        try:
+            return int(self.window().winId())
+        except Exception:
+            return None
+
+    def _start_focus_watch(self):
+        """启动焦点轮询;自动模式下不预设目标,用户切到的首个外部窗口被锁定为目标。
+
+        小窗模式下焦点检测整体禁用(游戏全程保持前台,无切窗即无误停)。
+        """
+        self._focus_timer.stop()
+        self._focus_lost = False
+        if self._mini_mode or not self._focus_enabled or not self._watcher.is_available():
+            self._policy = None
+            return
+        self._policy = FocusLockPolicy(own_hwnd=self._own_hwnd(), title_override=self._target_title)
+        self._focus_timer.start()
+
+    def _check_focus(self):
+        if not self._player.is_playing:
+            self._focus_timer.stop()
+            return
+        if self._policy is None:
+            self._focus_timer.stop()
+            return
+        was_locked = self._policy.locked
+        current = self._watcher.capture_current()
+        if self._policy.evaluate(current):
+            self._pause_for_focus()
+            return
+        if not was_locked and self._policy.locked and self._policy.target:
+            self.progress_state.setText(f"已锁定目标窗口: {self._policy.target.get('title') or '未命名窗口'}")
+
+    def _pause_for_focus(self):
+        self._focus_timer.stop()
+        self._focus_lost = True
+        self._player.stop()
+        self.progress_state.setText("目标窗口失去焦点,正在暂停...")
+
+    def _prompt_focus_recover(self):
+        """焦点恢复选择:断点续播 / 从头开始 / 保持暂停。"""
+        choice = AppDialog._popup(
+            self, "warning", "目标窗口失去焦点",
+            "演奏已自动暂停,进度已保留。\n切回游戏窗口后,可选择从断点继续或从头开始。",
+            [("保持暂停", "secondary"), ("从头开始", "secondary"), ("断点续播", "primary")],
+        )
+        if choice == "断点续播":
+            self._play()
+        elif choice == "从头开始":
+            self._reset()
+            self._play()
+        # 保持暂停 / 关闭弹窗:停留在暂停态,按钮由 _on_paused 控制
+
+    def _open_calibration(self):
+        from gui.calibration_dialog import CalibrationDialog
+
+        CalibrationDialog(self, self._player, self._config_path).exec()
+
+    # ---------- 演奏小窗联动 ----------
+
+    def mini_play(self):
+        self._play()
+
+    def mini_stop(self):
+        self._stop()
+
+    def mini_reset(self):
+        self._reset()
+
+    def disable_focus_watch(self):
+        """小窗模式:游戏全程保持前台焦点,焦点自动暂停没有意义,禁用。
+
+        必须用标志位而不是只清 policy:后续 _play -> _countdown_tick 会再次
+        调用 _start_focus_watch,若不拦截会在小窗模式下重新武装焦点检测。
+        """
+        self._mini_mode = True
+        self._focus_timer.stop()
+        self._policy = None
+
+    def rearm_focus_watch(self):
+        """从小窗还原到主窗时恢复焦点检测(仅演奏中生效)。"""
+        self._mini_mode = False
+        if self._player.is_playing:
+            self._start_focus_watch()
+
+    def snapshot_for_mini(self) -> dict:
+        """供演奏小窗 200ms 镜像同步的状态快照。"""
+        return {
+            "score": self.info_name.text(),
+            "state": self.progress_state.text(),
+            "pos": self.pos_label.text(),
+            "value": self.progress_bar.value(),
+            "max": self.progress_bar.maximum(),
+            "play_text": self.play_btn.text(),
+            "play_enabled": self.play_btn.isEnabled(),
+            "stop_enabled": self.stop_btn.isEnabled(),
+            "reset_enabled": self.reset_btn.isEnabled(),
+        }
+
     def _on_progress(self, done, total):
         self.progress_bar.setRange(0, max(1, total))
         self.progress_bar.setValue(done)
@@ -270,6 +392,7 @@ class PlayerTab(QWidget):
 
     def _on_paused(self, done, total):
         """停止(暂停):进度保留,可继续或重置。"""
+        self._focus_timer.stop()
         self._paused_done = done
         self._paused_total = total
         self.play_btn.setEnabled(True)
@@ -278,6 +401,9 @@ class PlayerTab(QWidget):
         self.reset_btn.setEnabled(True)
         self.state_label.setText("已暂停")
         self.progress_state.setText(f"已暂停于 {done} / {total} · 「继续演奏」或「重置」")
+        if self._focus_lost and not self._mini_mode:
+            self._focus_lost = False
+            self._prompt_focus_recover()
 
     def _reset(self):
         """重置:清空暂停进度,回到未开始态(仅在暂停态可点击)。"""
@@ -294,12 +420,19 @@ class PlayerTab(QWidget):
         self.progress_state.setText(f"出错: {msg}")
 
     def _on_finished(self, normal):
+        self._focus_timer.stop()
         self._clear_pause()
         self.play_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+        summary = getattr(self._player, "last_summary", None)
+        if summary is not None:
+            self.progress_state.setText(summary.format())
+            if summary.log_path:
+                self.progress_state.setToolTip(f"演奏日志: {summary.log_path}")
         if normal:
             self.state_label.setText("就绪")
-            self.progress_state.setText("演奏完成")
+            if summary is None:
+                self.progress_state.setText("演奏完成")
         elif not self._had_error:
             self.state_label.setText("就绪")
             self.progress_state.setText("已停止")

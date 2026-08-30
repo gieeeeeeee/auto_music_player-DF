@@ -5,6 +5,8 @@ import os
 import sqlite3
 from datetime import datetime
 
+from core.score_model import require_valid
+
 
 class ScoreDB:
     """乐谱库:一份乐谱记录一次,重复演奏无需重新上传。"""
@@ -33,6 +35,7 @@ class ScoreDB:
         self.conn.commit()
 
     def add_score(self, name, notes, raw_text="", source_file="", source_type="", bpm_default=100):
+        require_valid(notes, bpm=bpm_default)
         cur = self.conn.execute(
             "INSERT INTO scores (name, source_file, source_type, raw_text, notes_json, bpm_default, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -50,6 +53,7 @@ class ScoreDB:
         return cur.lastrowid
 
     def update_score(self, score_id, name, notes, raw_text="", bpm_default=100):
+        require_valid(notes, bpm=bpm_default)
         self.conn.execute(
             "UPDATE scores SET name=?, raw_text=?, notes_json=?, bpm_default=? WHERE id=?",
             (name, raw_text, json.dumps(notes, ensure_ascii=False), bpm_default, score_id),

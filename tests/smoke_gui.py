@@ -23,6 +23,9 @@ def run():
     app.setStyleSheet(m.APP_QSS)
     win = m.MainWindow(cfg, db, keymap, recognizer, player, settings_store)
     win.show()
+    # 演奏小窗冒烟:切为小窗 -> 还原主窗(验证原生样式/穿透过滤/状态镜像无崩溃)
+    QTimer.singleShot(600, win._switch_to_mini)
+    QTimer.singleShot(1100, win._restore_from_mini)
     # AppDialog 组件冒烟:五种类型可构造不崩溃
     from gui.widgets import AppDialog
 

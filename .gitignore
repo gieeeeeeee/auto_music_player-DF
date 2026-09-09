@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+data/
+*.db
+settings.json
+.venv/
+venv/
+gui-redesign/runtime-*.json
+gui-redesign/validation-report.json
+gui-redesign/.preflight/
+build/
+dist/
+app-icon/
+
+# Android(android/ 子项目)
+android/.gradle/
+android/local.properties
+android/.idea/
+android/*.iml
+android/.cxx/
+android/captures/
+
+# 视频宣传素材(大文件,不入仓库)
+video-cover/

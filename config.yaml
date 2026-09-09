@@ -1,0 +1,49 @@
+app:
+  data_dir: data
+  db_file: scores.db
+
+recognizer:
+  # provider: stub | openai_compatible
+  # stub  = 内置样例,用于跑通流程,不调用真实 API
+  # openai_compatible = 兼容 OpenAI 协议的多模态接口(通义/GLM/Kimi/OpenAI 均可用)
+  provider: stub
+  api_base: ""
+  api_key: ""
+  model: ""
+  # 识别超时(秒)
+  timeout: 120
+
+# AI 编谱建议(实验性):默认关闭;接口凭据复用模型设置页当前激活供应商
+advisor:
+  # 是否启用
+  enabled: true
+  # 编谱用模型名;留空 = 使用激活供应商的模型
+  model: ""
+
+keymap:
+  # 高音 1-7（左键 + 键盘键）
+  high: [RMB+Z, RMB+X, RMB+C, RMB+V, RMB+B, RMB+N, RMB+M]
+  # 中音 1-7
+  mid: [Z, X, C, V, B, N, M]
+  # 低音 1-7（右键 + 键盘键）
+  low: [LMB+Z, LMB+X, LMB+C, LMB+V, LMB+B, LMB+N, LMB+M]
+
+player:
+  # 默认演奏速度(拍/分钟,四分音符为一拍)
+  default_bpm: 100
+  # 按键按住时间占音符时值的比例(0-1),其余为松开间隙,防止音符粘连
+  hold_ratio: 0.75
+  # 相邻音符之间的额外间隔(毫秒)
+  gap_ms: 20
+  # 全局紧急停止热键
+  stop_hotkey: F8
+  # 系统输出延迟补偿(毫秒,延迟校准向导写入;0 = 不补偿)
+  latency_compensation_ms: 0
+  # 目标窗口焦点检测:演奏中失去目标窗口焦点时自动暂停(断点保留,可续播)
+  focus_check:
+    # 是否启用
+    enabled: true
+    # 检测周期(毫秒)
+    poll_interval_ms: 400
+    # 手动指定目标窗口标题子串(大小写不敏感);留空 = 开始演奏时自动快照当前前台窗口
+    target_window_title: ""

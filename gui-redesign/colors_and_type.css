@@ -1,0 +1,90 @@
+/* ============================================================
+   Game Auto Music Player — Design Tokens
+   Theme: Dark | Brand: Warm Amber Gold
+   ============================================================ */
+
+:root {
+  /* --- Core Palette --- */
+  --bg: #0E0E14;
+  --surface: #16161E;
+  --surface-2: #1E1E28;
+  --surface-3: #262631;
+  --ink: #EDEDF2;
+  --ink-2: #9494A2;
+  --ink-3: #5E5E6E;
+  --line: #26262F;
+  --line-2: #2E2E3A;
+
+  /* --- Brand (single hue: warm amber gold) --- */
+  --brand: #D4A24C;
+  --brand-2: #E8B85E;
+  --brand-3: #B88638;
+  --brand-soft: rgba(212, 162, 76, 0.12);
+  --brand-ink: #0E0E14;
+
+  /* --- State Colors (semantic only) --- */
+  --state-success: #4ADE80;
+  --state-warning: #FBBF24;
+  --state-error: #F87171;
+  --state-info: #38BDF8;
+
+  /* --- Radius Scale --- */
+  --r-xs: 2px;
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 16px;
+  --r-pill: 999px;
+
+  /* --- Border --- */
+  --border: 1px solid var(--line);
+  --border-2: 1px solid var(--line-2);
+
+  /* --- Shadow --- */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.24), 0 1px 1px rgba(0, 0, 0, 0.12);
+  --shadow-2: 0 8px 24px -8px rgba(0, 0, 0, 0.48);
+  --shadow-3: 0 24px 60px -20px rgba(0, 0, 0, 0.64);
+
+  /* --- Typography --- */
+  --font-sans: "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
+
+  /* --- Spacing (8pt grid) --- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 80px;
+}
+
+/* ============================================================
+   Semantic Aliases (brand prefix: amp)
+   Mapped to core tokens for apply-html-head-contract.mjs
+   ============================================================ */
+
+:root {
+  --amp-background: var(--bg);
+  --amp-foreground: var(--ink);
+  --amp-card: var(--surface);
+  --amp-card-foreground: var(--ink);
+  --amp-popover: var(--surface-2);
+  --amp-popover-foreground: var(--ink);
+  --amp-primary: var(--brand);
+  --amp-primary-foreground: var(--brand-ink);
+  --amp-secondary: var(--surface-2);
+  --amp-secondary-foreground: var(--ink);
+  --amp-muted: var(--surface-2);
+  --amp-muted-foreground: var(--ink-2);
+  --amp-accent: var(--surface-3);
+  --amp-accent-foreground: var(--ink);
+  --amp-destructive: var(--state-error);
+  --amp-destructive-foreground: var(--ink);
+  --amp-border: var(--line);
+  --amp-input: var(--surface-2);
+  --amp-ring: var(--brand);
+  --amp-radius-sm: var(--r-sm);
+  --amp-radius-md: var(--r-md);
+  --amp-radius-lg: var(--r-lg);
+}
